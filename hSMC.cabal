@@ -26,13 +26,14 @@ source-repository head
 library
   exposed-modules:
       Lib
+      Program
   other-modules:
       Paths_hSMC
   hs-source-dirs:
       src
   build-depends:
       base >=4.7 && <5
-    , smtlib2 >=1 && <2
+    , sbv >=8 && <9
   default-language: Haskell2010
 
 executable hSMC-exe
@@ -58,4 +59,5 @@ test-suite hSMC-test
   build-depends:
       base >=4.7 && <5
     , hSMC
+    , sbv >=8 && <9
   default-language: Haskell2010

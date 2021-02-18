@@ -25,7 +25,7 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-    - smtlib2 >= 1 && < 2
+    - sbv >= 8 && < 9
 
 executables:
   hSMC-exe:
@@ -48,3 +48,4 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - hSMC
+    - sbv >= 8 && < 9
