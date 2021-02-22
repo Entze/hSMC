@@ -33,7 +33,10 @@ library
       src
   build-depends:
       base >=4.7 && <5
+    , megaparsec >=8 && <9
     , sbv >=8 && <9
+    , sexpresso >=1.0 && <2
+    , text >=1.2 && <2
   default-language: Haskell2010
 
 executable hSMC-exe
@@ -59,5 +62,8 @@ test-suite hSMC-test
   build-depends:
       base >=4.7 && <5
     , hSMC
+    , megaparsec >=8 && <9
     , sbv >=8 && <9
+    , sexpresso >=1.0 && <2
+    , text >=1.2 && <2
   default-language: Haskell2010

@@ -4,9 +4,14 @@ module Program where
 import Data.SBV
 import Data.List
 import Data.Maybe
+import Data.SExpresso.SExpr
+import Data.SExpresso.Parse
+import qualified Data.Text as Text
 
 data ProgramType = ProgramInt | ProgramBool deriving (Eq, Show)
 --data ProgramOperator = Equal | Implies | And | Plus deriving (Eq, Show)
+
+type SMTLibExpr = SExpr () String
 
 {-
 data ProgramAtom = 
@@ -21,6 +26,13 @@ data InitExpr =
     | Unequal String String
     deriving (Eq, Show)
 
+
+--data Expr = String | Operator Expr Expr
+
+--data Transplant = Operator String Transplant | Operator Translator String | Operator String String | Operator Transplant Transplant | And [Transplant]
+
+
+
 data ImplicationExpr = Implies [InitExpr] [InitExpr] deriving (Eq, Show)
 
 data Expr = Null deriving (Eq, Show)
@@ -33,16 +45,22 @@ data ProgramProperty = Property [ImplicationExpr] deriving (Eq, Show)
 
 --data SymbolicTranslation = 
 
+
+sExprToExpr :: SMTLibExpr -> Expr
+sExprToExpr = undefined
+
 translateProgram :: Int -> Program -> SymbolicT IO SBool
-translateProgram 0 (Program
+translateProgram n (Program
     (State state)
     (Init init)
     (Transition transition)
     (Property property)
-    ) = do
+    )
+    | n <= 0 = do
         sIntVars <- sIntegers intVars
         (sequence_ . map (constrain . (translateInitExpr intVars sIntVars))) init
         (return . sAnd . map (translatePropertyExpr intVars sIntVars)) property
+--  | otherwise = return ()
     where
         --TODO: boolVars, arrayVars, etc.
         intVars = map fst intVars'
@@ -57,6 +75,6 @@ translateExpr (Node (Const ProgramInt val) []) = (Left . (read :: )) val
 
 translateInitExpr vars svars (Equals var val) = (svars !! (fromJust (var `elemIndex` vars))) .== (literal ((read val) :: Integer))
 
-translateTranslationExpr vars svars (Implies pre post) = (sAnd (map (translateInitExpr vars svars) pre)) .=> (sAnd (map (translateInitExpr vars svars) post))
+translateTransitionExpr vars svars (Implies pre post) = (sAnd (map (translateInitExpr vars svars) pre)) .=> (sAnd (map (translateInitExpr vars svars) post))
 
 translatePropertyExpr vars svars (Implies pre post) = (sAnd (map (translateInitExpr vars svars) pre)) .=> (sAnd (map (translateInitExpr vars svars) post))

@@ -11,6 +11,27 @@ packages:
       sha256: 9564ae2d0028c194043efb94866ca9cf7d9873d4b79932a53e04c7880c05159b
   original:
     hackage: sbv-8.10@sha256:910384ec5ec29c6798b855c0f0228d5727e0dcdf210405931dadbcc1d34378fc,29164
+- completed:
+    hackage: sexpresso-1.1.0.0@sha256:db9cc870be989f7eb2d73db4152bf6a19c220479ba862d0dc19757017ec0ff39,2178
+    pantry-tree:
+      size: 1152
+      sha256: 605fe3aa6bf926d10895e95baa6ef5d4056ecf95663f5943b228ef405e0064ad
+  original:
+    hackage: sexpresso-1.1.0.0@sha256:db9cc870be989f7eb2d73db4152bf6a19c220479ba862d0dc19757017ec0ff39,2178
+- completed:
+    hackage: megaparsec-8.0.0@sha256:362f85e243ecbcb550e1de6e5c74ba5a50c09edaa1208c99bc5b9fd242227fc6,3808
+    pantry-tree:
+      size: 1446
+      sha256: 955117c00a86970f2d0c215f33cf5293b16589c04678a0a790c03368ab6fd0aa
+  original:
+    hackage: megaparsec-8.0.0@sha256:362f85e243ecbcb550e1de6e5c74ba5a50c09edaa1208c99bc5b9fd242227fc6,3808
+- completed:
+    hackage: recursion-schemes-5.1.3@sha256:cbcf3c36e1733a83fb8cda305bde2de18a2fbab53692e3301263964def430107,3523
+    pantry-tree:
+      size: 719
+      sha256: 617f5740281ab044b0205b5a2810bfa8efc6b858705fe8caff5438a382bcfd96
+  original:
+    hackage: recursion-schemes-5.1.3@sha256:cbcf3c36e1733a83fb8cda305bde2de18a2fbab53692e3301263964def430107,3523
 snapshots:
 - completed:
     size: 563103
