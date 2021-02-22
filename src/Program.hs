@@ -9,9 +9,9 @@ import Data.SExpresso.Parse
 import qualified Data.Text as Text
 
 data ProgramType = ProgramInt | ProgramBool deriving (Eq, Show)
---data ProgramOperator = Equal | Implies | And | Plus deriving (Eq, Show)
-
-type SMTLibExpr = SExpr () String
+data LogicOp = EquivOP | XorOP | ImpliesOP | AndOP deriving (Eq, Show)
+data CompOp = GEqualOP | LessOP | UnequalOP | EqualOP deriving (Eq, Show)
+data ArithOp = PlusOP deriving (Eq, Show)
 
 {-
 data ProgramAtom = 
@@ -21,33 +21,23 @@ data ProgramAtom =
     deriving (Eq, Show)
 -}
 
-data InitExpr =
-    Equals String String
-    | Unequal String String
-    deriving (Eq, Show)
-
 
 --data Expr = String | Operator Expr Expr
 
 --data Transplant = Operator String Transplant | Operator Translator String | Operator String String | Operator Transplant Transplant | And [Transplant]
 
+data Implication = Implies [Clause] [Clause] deriving (Show, Eq)
+data Clause = LogicClause LogicOp Clause Clause | ArithClause CompOp Term Term | BoolVar String | BoolConst String deriving (Show, Eq)
+data Term = Term ArithOp Term Term | IntVar String | IntConst String deriving (Show, Eq)
 
-
-data ImplicationExpr = Implies [InitExpr] [InitExpr] deriving (Eq, Show)
-
-data Expr = Null deriving (Eq, Show)
+--data ImplicationExpr = Implies [InitExpr] [InitImplication] deriving (Eq, Show)
 
 data Program = Program ProgramState ProgramInit ProgramTransition ProgramProperty deriving (Eq, Show)
 data ProgramState = State [(String, ProgramType)] deriving (Eq, Show)
-data ProgramInit = Init [InitExpr] deriving (Eq, Show)
-data ProgramTransition = Transition [ImplicationExpr] deriving (Eq, Show)
-data ProgramProperty = Property [ImplicationExpr] deriving (Eq, Show)
+data ProgramInit = Init [Clause] deriving (Eq, Show)
+data ProgramTransition = Transition [Implication] deriving (Eq, Show)
+data ProgramProperty = Property [Implication] deriving (Eq, Show)
 
---data SymbolicTranslation = 
-
-
-sExprToExpr :: SMTLibExpr -> Expr
-sExprToExpr = undefined
 
 translateProgram :: Int -> Program -> SymbolicT IO SBool
 translateProgram n (Program
@@ -58,8 +48,9 @@ translateProgram n (Program
     )
     | n <= 0 = do
         sIntVars <- sIntegers intVars
-        (sequence_ . map (constrain . (translateInitExpr intVars sIntVars))) init
-        (return . sAnd . map (translatePropertyExpr intVars sIntVars)) property
+--        (sequence_ . map (constrain . (translateInitExpr intVars sIntVars))) init
+        return (literal False)
+--        (return . sAnd . map (translatePropertyExpr intVars sIntVars)) property
 --  | otherwise = return ()
     where
         --TODO: boolVars, arrayVars, etc.
@@ -73,8 +64,31 @@ translateExpr (Node (Operator Equal) list) = (Right . allEqual . (fromLeft) . ma
 translateExpr (Node (Const ProgramInt val) []) = (Left . (read :: )) val
 -}
 
+{-
 translateInitExpr vars svars (Equals var val) = (svars !! (fromJust (var `elemIndex` vars))) .== (literal ((read val) :: Integer))
 
-translateTransitionExpr vars svars (Implies pre post) = (sAnd (map (translateInitExpr vars svars) pre)) .=> (sAnd (map (translateInitExpr vars svars) post))
+--translateTransitionExpr vars svars (Expr ImpliesOP pre post) = (sAnd (map (translateInitExpr vars svars) pre)) .=> (sAnd (map (translateInitExpr vars svars) post))
 
-translatePropertyExpr vars svars (Implies pre post) = (sAnd (map (translateInitExpr vars svars) pre)) .=> (sAnd (map (translateInitExpr vars svars) post))
+--translatePropertyExpr vars svars (Expr ImpliesOP pre post) = (sAnd (map (translateInitExpr vars svars) pre)) .=> (sAnd (map (translateInitExpr vars svars) post))
+
+translateBoolClause :: Clause -> SBool
+--translateBoolClause (Clause op (Const const1) (Const const2))
+--translateBoolClause (Clause op (Const const1) clause2)
+--translateBoolClause (Clause op clause1 (Const const2))
+translateBoolClause (Clause op clause1 clause2)
+    | op == EqualOP = (translateBoolClause clause1) .== (translateBoolClause clause2)
+    | op == UnequalOP = (translateBoolClause clause1) ./= (translateBoolClause clause2)
+    | op == ImpliesOP = (translateBoolClause clause1) .=> (translateBoolClause clause2)
+    | op == AndOP = (translateBoolClause clause1) .&& (translateBoolClause clause2)
+    | op == GEqualOP = (translateIntClause clause1) .>= (translateIntClause clause2)
+    | op == LessOP = (translateIntClause clause1) .< (translateIntClause clause2)
+    | op == PlusOP = (translateIntClause clause1) + (translateIntClause clause2)
+
+translateIntClause :: Clause -> SInteger
+--translateIntClause (Clause op (Const const1) (Const const2))
+--translateIntClause (Clause op (Const const1) clause2)
+--translateIntClause (Clause op clause1 (Const const2))
+translateIntClause (Clause op clause1 clause2)
+    | op == PlusOP = (translateIntClause clause1) + (translateIntClause clause2)
+
+    -}
