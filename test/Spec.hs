@@ -22,14 +22,14 @@ sumExample = (Program
                             (Equals "pc_" "1")]),
                         (Implies
                           [(Equals "pc" "1"), 
-                            (GEqual "i" "n")]
+                            (LEqual "i" "n")]
                           [(Equals "r_" "r"),
                             (Equals "i_" "i"),
                             (Equals "n_" "n"),
                             (Equals "pc_" "2")]),
                         (Implies 
                           [(Equals "pc" "1"),
-                            (Less "i" "n")]
+                            (Greater "i" "n")]
                           [(Equals "r_" "r"),
                             (Equals "n_" "n"),
                             (Equals "pc_" "4")]

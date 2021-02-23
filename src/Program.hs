@@ -10,27 +10,14 @@ import qualified Data.Text as Text
 
 data ProgramType = ProgramInt | ProgramBool deriving (Eq, Show)
 data LogicOp = EquivOP | XorOP | ImpliesOP | AndOP deriving (Eq, Show)
-data CompOp = GEqualOP | LessOP | UnequalOP | EqualOP deriving (Eq, Show)
+data CompOp = LEqualOP | GEqualOP | LessOP | GreaterOP | UnequalOP | EqualOP deriving (Eq, Show)
 data ArithOp = PlusOP deriving (Eq, Show)
 
-{-
-data ProgramAtom = 
-    Const ProgramType String 
-    | Var ProgramType String 
-    | Operator ProgramOperator
-    deriving (Eq, Show)
--}
 
-
---data Expr = String | Operator Expr Expr
-
---data Transplant = Operator String Transplant | Operator Translator String | Operator String String | Operator Transplant Transplant | And [Transplant]
 
 data Implication = Implies [Clause] [Clause] deriving (Show, Eq)
-data Clause = LogicClause LogicOp Clause Clause | ArithClause CompOp Term Term | BoolVar String | BoolConst String deriving (Show, Eq)
+data Clause = LogicClause LogicOp Clause Clause | CompClause CompOp Term Term | BoolVar String | BoolConst String deriving (Show, Eq)
 data Term = Term ArithOp Term Term | IntVar String | IntConst String deriving (Show, Eq)
-
---data ImplicationExpr = Implies [InitExpr] [InitImplication] deriving (Eq, Show)
 
 data Program = Program ProgramState ProgramInit ProgramTransition ProgramProperty deriving (Eq, Show)
 data ProgramState = State [(String, ProgramType)] deriving (Eq, Show)
@@ -38,8 +25,43 @@ data ProgramInit = Init [Clause] deriving (Eq, Show)
 data ProgramTransition = Transition [Implication] deriving (Eq, Show)
 data ProgramProperty = Property [Implication] deriving (Eq, Show)
 
+data VariableState = VariableState {
+    boolVarNames :: [String],
+    boolSVars :: [SBool],
+    intVarNames :: [String],
+    intSVars :: [SInteger]
+    } deriving (Eq, Show)
 
-translateProgram :: Int -> Program -> SymbolicT IO SBool
+
+lookupBoolVar :: String -> VariableState -> SBool
+lookupBoolVar str varState = maybe (literal False) ((boolSVars varState) !!) ix
+    where
+        ix = str `elemIndex` (boolVarNames varState)
+
+lookupIntVar :: String -> VariableState -> SInteger
+lookupIntVar str varState = maybe (literal 0) ((intSVars varState) !!) ix
+    where
+        ix = str `elemIndex` (intVarNames varState)
+
+
+translateArithOp :: ArithOp -> (SInteger -> SInteger -> SInteger)
+translateArithOp PlusOP = (+)
+
+translateLogicOp :: LogicOp -> (SBool -> SBool -> SBool)
+translateLogicOp EquivOP = (.==)
+translateLogicOp XorOP = (./=)
+translateLogicOp ImpliesOP = (.=>)
+translateLogicOp AndOP = (.&&)
+
+translateCompOp :: CompOp -> (SInteger -> SInteger -> SBool)
+translateCompOp EqualOP = (.==)
+translateCompOp UnequalOP = (./=)
+translateCompOp GEqualOP = (.>=)
+translateCompOp LessOP = (.<)
+translateCompOp LEqualOP = (.<=)
+translateCompOp GreaterOP = (.>)
+
+translateProgram :: Int -> Program -> Symbolic SBool
 translateProgram n (Program
     (State state)
     (Init init)
@@ -48,6 +70,8 @@ translateProgram n (Program
     )
     | n <= 0 = do
         sIntVars <- sIntegers intVars
+        shadowIntVars <- sIntegers shadowIntVars
+        -- interleave or concat sIntVars & shadowIntVars
 --        (sequence_ . map (constrain . (translateInitExpr intVars sIntVars))) init
         return (literal False)
 --        (return . sAnd . map (translatePropertyExpr intVars sIntVars)) property
@@ -55,40 +79,27 @@ translateProgram n (Program
     where
         --TODO: boolVars, arrayVars, etc.
         intVars = map fst intVars'
+        shadowIntVars = map (++ "_") intVars
         intVars' = filter ((== ProgramInt) . snd) state
 
-        
-{-
-translateExpr :: EqSymbolic a => Expr -> Either a SBool
-translateExpr (Node (Operator Equal) list) = (Right . allEqual . (fromLeft) . map translateExpr) list
-translateExpr (Node (Const ProgramInt val) []) = (Left . (read :: )) val
--}
 
-{-
-translateInitExpr vars svars (Equals var val) = (svars !! (fromJust (var `elemIndex` vars))) .== (literal ((read val) :: Integer))
 
---translateTransitionExpr vars svars (Expr ImpliesOP pre post) = (sAnd (map (translateInitExpr vars svars) pre)) .=> (sAnd (map (translateInitExpr vars svars) post))
+translateBoolClause :: VariableState -> Clause -> Symbolic SBool
+translateBoolClause varIndex (BoolVar var) = return (var `lookupBoolVar` varIndex)
+translateBoolClause _ (BoolConst const) = (return . literal . (read :: String -> Bool)) const
+translateBoolClause varIndex (CompClause op term1 term2) = do
+                                                        term1' <- (translateIntTerm varIndex) term1
+                                                        term2' <-  (translateIntTerm varIndex) term2
+                                                        return ((translateCompOp op) term1' term2')
+translateBoolClause varIndex (LogicClause op clause1 clause2) = do 
+                                                        clause1' <- (translateBoolClause varIndex) clause1
+                                                        clause2' <- (translateBoolClause varIndex) clause2
+                                                        return ((translateLogicOp op) clause1' clause2')
 
---translatePropertyExpr vars svars (Expr ImpliesOP pre post) = (sAnd (map (translateInitExpr vars svars) pre)) .=> (sAnd (map (translateInitExpr vars svars) post))
-
-translateBoolClause :: Clause -> SBool
---translateBoolClause (Clause op (Const const1) (Const const2))
---translateBoolClause (Clause op (Const const1) clause2)
---translateBoolClause (Clause op clause1 (Const const2))
-translateBoolClause (Clause op clause1 clause2)
-    | op == EqualOP = (translateBoolClause clause1) .== (translateBoolClause clause2)
-    | op == UnequalOP = (translateBoolClause clause1) ./= (translateBoolClause clause2)
-    | op == ImpliesOP = (translateBoolClause clause1) .=> (translateBoolClause clause2)
-    | op == AndOP = (translateBoolClause clause1) .&& (translateBoolClause clause2)
-    | op == GEqualOP = (translateIntClause clause1) .>= (translateIntClause clause2)
-    | op == LessOP = (translateIntClause clause1) .< (translateIntClause clause2)
-    | op == PlusOP = (translateIntClause clause1) + (translateIntClause clause2)
-
-translateIntClause :: Clause -> SInteger
---translateIntClause (Clause op (Const const1) (Const const2))
---translateIntClause (Clause op (Const const1) clause2)
---translateIntClause (Clause op clause1 (Const const2))
-translateIntClause (Clause op clause1 clause2)
-    | op == PlusOP = (translateIntClause clause1) + (translateIntClause clause2)
-
-    -}
+translateIntTerm :: VariableState -> Term -> Symbolic SInteger
+translateIntTerm varIndex (IntVar var) =  return (var `lookupIntVar` varIndex)
+translateIntTerm _ (IntConst const) = (return . literal . (read :: String -> Integer)) const
+translateIntTerm varIndex (Term op term1 term2) = do
+                                                        term1' <- (translateIntTerm varIndex) term1
+                                                        term2' <-  (translateIntTerm varIndex) term2
+                                                        return ((translateArithOp op) term1' term2')
