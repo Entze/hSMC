@@ -26,9 +26,7 @@ library:
   source-dirs: src
   dependencies:
     - sbv >= 8 && < 9
-    - sexpresso >= 1.0 && < 2
-    - text >= 1.2 && < 2
-    - megaparsec >= 8 && < 9
+    - containers >= 0.6 && < 1
 
 executables:
   hSMC-exe:
@@ -52,6 +50,3 @@ tests:
     dependencies:
     - hSMC
     - sbv >= 8 && < 9
-    - sexpresso >= 1.0 && < 2
-    - text >= 1.2 && < 2
-    - megaparsec >= 8 && < 9

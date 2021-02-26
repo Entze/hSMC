@@ -4,9 +4,7 @@ module Program where
 import Data.SBV
 import Data.List
 import Data.Maybe
-import Data.SExpresso.SExpr
-import Data.SExpresso.Parse
-import qualified Data.Text as Text
+import qualified Data.Map.Strict as Map
 
 data ProgramType = ProgramInt | ProgramBool deriving (Eq, Show)
 data LogicOp = EquivOP | XorOP | ImpliesOP | AndOP deriving (Eq, Show)
@@ -20,28 +18,34 @@ data Clause = LogicClause LogicOp Clause Clause | CompClause CompOp Term Term | 
 data Term = Term ArithOp Term Term | IntVar String | IntConst String deriving (Show, Eq)
 
 data Program = Program ProgramState ProgramInit ProgramTransition ProgramProperty deriving (Eq, Show)
-data ProgramState = State [(String, ProgramType)] deriving (Eq, Show)
-data ProgramInit = Init [Clause] deriving (Eq, Show)
-data ProgramTransition = Transition [Implication] deriving (Eq, Show)
-data ProgramProperty = Property [Implication] deriving (Eq, Show)
+newtype ProgramState = State [(String, ProgramType)] deriving (Eq, Show)
+newtype ProgramInit = Init [Clause] deriving (Eq, Show)
+newtype ProgramTransition = Transition [Implication] deriving (Eq, Show)
+newtype ProgramProperty = Property [Implication] deriving (Eq, Show)
 
 data VariableState = VariableState {
-  boolVarNames :: [String],
-  boolSVars :: [SBool],
-  intVarNames :: [String],
-  intSVars :: [SInteger]
-  } deriving (Eq, Show)
+  boolVars :: Map.Map String (SBool, SBool),
+  intVars :: Map.Map String (SInteger, SInteger)
+}
 
 
 lookupBoolVar :: String -> VariableState -> SBool
-lookupBoolVar str varState = maybe (literal False) ((boolSVars varState) !!) ix
-  where
-    ix = str `elemIndex` (boolVarNames varState)
+lookupBoolVar str varState
+  | last str == '_' && Map.notMember deshadowed index = (snd . find) deshadowed
+  | otherwise = (fst . find) str
+    where
+      index = boolVars varState
+      deshadowed = init str
+      find = flip (Map.findWithDefault (literal False, literal False)) index
 
 lookupIntVar :: String -> VariableState -> SInteger
-lookupIntVar str varState = maybe (literal 0) ((intSVars varState) !!) ix
-  where
-    ix = str `elemIndex` (intVarNames varState)
+lookupIntVar str varState
+  | last str == '_' && Map.notMember deshadowed index = (snd . find) deshadowed
+  | otherwise = (fst . find) str
+    where
+      index = intVars varState
+      deshadowed = init str
+      find = flip (Map.findWithDefault (literal 0, literal 0)) index
 
 
 translateArithOp :: ArithOp -> (SInteger -> SInteger -> SInteger)
@@ -61,33 +65,45 @@ translateCompOp LessOP = (.<)
 translateCompOp LEqualOP = (.<=)
 translateCompOp GreaterOP = (.>)
 
-translateProgram :: Int -> Program -> Symbolic SBool
-translateProgram n (Program (State state)
+translateProgram :: Maybe VariableState -> VariableState -> Program -> Symbolic SBool
+translateProgram oldState newState prog@(Program (State state)
               (Init init)
               (Transition transition)
               (Property property))
   = do
-    sIntVars <- sIntegers intVars
-    shadowSIntVars <- sIntegers shadowIntVars
-    sBoolVars <- sBools boolVars
-    shadowSBoolVars <- sBools shadowBoolVars
-    let concreteState = VariableState { boolVarNames = boolVars ++ shadowBoolVars,
-                      boolSVars = sBoolVars ++ shadowSBoolVars,
-                      intVarNames = intVars ++ shadowIntVars,
-                      intSVars = sIntVars ++ shadowSIntVars}
-    (sequence_ . (map (constrain . (translateBoolClause concreteState)))) init
-    return (literal False)
---    (return . sAnd . map (translatePropertyExpr intVars sIntVars)) property
---  | otherwise = return ()
+    mapM_ (constrain . translateBoolClause newState) init
+    (return . sAll (translateImplies newState)) property
+
+buildState :: Program -> Symbolic VariableState
+buildState (Program (State state) _ _ _)
+    = do
+    sIntVars <- sIntegers intVars'
+    shadowSIntVars <- sIntegers intVars'
+    sBoolVars <- sBools boolVars'
+    shadowSBoolVars <- sBools boolVars'
+    return VariableState { boolVars = Map.fromList (zip boolVars' (zip sBoolVars shadowSBoolVars)),
+                      intVars = Map.fromList (zip intVars' (zip sIntVars shadowSIntVars))}
   where
+    intVars' = (map fst . filter ((== ProgramInt) . snd)) state
+    boolVars' = (map fst . filter ((== ProgramBool) . snd)) state
 
-    --TODO: boolVars, arrayVars, etc.
-    intVars = (map fst . filter ((== ProgramInt) . snd)) state
-    shadowIntVars = map (++ "_") intVars
-    boolVars = (map fst . filter ((== ProgramBool) . snd)) state
-    shadowBoolVars = map (++ "_") boolVars
+connectStates :: VariableState -> VariableState -> [SBool]
+connectStates oldState newState = connectStates' oldBoolVars newBoolVars ++ connectStates' oldIntVars newIntVars
+  where
+    connectStates' :: EqSymbolic a => Map.Map String (b,a) -> Map.Map String (a,c) -> [SBool]
+    connectStates' old new = Map.elems (Map.mapWithKey (connectState new) old)
+    connectState :: EqSymbolic a => Map.Map String (a,b) -> String -> (c, a) -> SBool
+    connectState newState varName (_, shadow) = shadow .== fst (newState Map.! varName)
+    oldBoolVars = boolVars oldState
+    oldIntVars = intVars oldState
+    newBoolVars = boolVars newState
+    newIntVars = intVars newState
 
+translateImplies :: VariableState -> Implication -> SBool
+translateImplies varIndex (Implies clauses1 clauses2) = translateBoolClauses varIndex clauses1 .=> translateBoolClauses varIndex clauses2
 
+translateBoolClauses :: VariableState -> [Clause] -> SBool
+translateBoolClauses varIndex = sAnd . map (translateBoolClause varIndex)
 
 
 translateBoolClause :: VariableState -> Clause -> SBool
