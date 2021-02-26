@@ -1,5 +1,4 @@
 import Data.SBV
-import qualified Data.Text as Text
 import Program
 
 main :: IO ()

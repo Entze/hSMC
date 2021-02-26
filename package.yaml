@@ -27,6 +27,7 @@ library:
   dependencies:
     - sbv >= 8 && < 9
     - containers >= 0.6 && < 1
+    - safe >= 0.3 && < 1
 
 executables:
   hSMC-exe:

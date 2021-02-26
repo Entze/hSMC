@@ -4,7 +4,9 @@ module Program where
 import Data.SBV
 import Data.List
 import Data.Maybe
+import Control.Monad
 import qualified Data.Map.Strict as Map
+import Safe
 
 data ProgramType = ProgramInt | ProgramBool deriving (Eq, Show)
 data LogicOp = EquivOP | XorOP | ImpliesOP | AndOP deriving (Eq, Show)
@@ -65,6 +67,43 @@ translateCompOp LessOP = (.<)
 translateCompOp LEqualOP = (.<=)
 translateCompOp GreaterOP = (.>)
 
+bmc :: Int -> Program -> IO ()
+bmc bound program = bmc' 0 []
+  where
+  bmc' n oldstates
+    | n >= bound = putStrLn "Bound exceeded."
+    | n == 0 = do
+      putStrLn ("Level " ++ show n)
+      let newState = buildState program
+      let toProve = do {
+        ns <- newState;
+        translateProgram Nothing ns program
+      }
+      isSat <- isSatisfiable toProve
+      if isSat then
+        (do {
+        putStrLn "Counterexample found:";
+        result <- prove toProve;
+        print result;
+      })
+        else bmc' (n+1) (newState:oldstates)
+    | otherwise = do
+      putStrLn ("Level " ++ show n)
+      let newState = buildState program
+      let toProve = do {
+        os <- head oldstates;
+        ns <- newState;
+        translateProgram (Just os) ns program
+      }
+      isSat <- isSatisfiable toProve
+      if isSat then
+        (do {
+        putStrLn "Counterexample found:";
+        result <- prove toProve;
+        print result;
+      })
+        else bmc' (n+1) (newState:oldstates)
+
 translateProgram :: Maybe VariableState -> VariableState -> Program -> Symbolic SBool
 translateProgram oldState newState prog@(Program (State state)
               (Init init)
@@ -75,8 +114,8 @@ translateProgram oldState newState prog@(Program (State state)
     (return . sAll (translateImplies newState)) property
 
 buildState :: Program -> Symbolic VariableState
-buildState (Program (State state) _ _ _)
-    = do
+buildState (Program (State state) _ _ _) 
+  = do
     sIntVars <- sIntegers intVars'
     shadowSIntVars <- sIntegers intVars'
     sBoolVars <- sBools boolVars'
