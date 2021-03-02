@@ -57,3 +57,24 @@ sumExample = (Program
             (Property [(Implies
                           [(CompClause EqualOP (IntVar "pc") (IntConst "4"))]
                           [(CompClause EqualOP (IntVar "r") (IntConst "0"))])]))
+
+sumInit :: VariableState -> SBool
+sumInit = flip translateBoolClauses init
+  where
+    (Program _ (Init init) _ _) = sumExample
+
+sumTrans :: VariableState -> [(SBool, VariableState)]
+sumTrans variableState = [(lookupIntVar "pc" variableState .== 0, VariableState {
+  boolVars = [],
+  intVars = [
+    ("pc", literal 1),
+    ("n", lookupIntVar "n" variableState),
+    ("i", literal 0),
+    ("r", literal 0)
+  ]
+  })]
+
+sumGoal :: VariableState -> SBool
+sumGoal variableState = sAll (translateImplies variableState) property
+  where
+    (Program _ _ _ (Property property)) = sumExample

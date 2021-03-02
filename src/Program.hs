@@ -1,7 +1,8 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts, NamedFieldPuns, MultiParamTypeClasses, FlexibleInstances, GADTs #-}
 module Program where
 
 import Data.SBV
+import Data.SBV.Control
 import Data.List
 import Data.Maybe
 import Control.Monad
@@ -13,7 +14,8 @@ data LogicOp = EquivOP | XorOP | ImpliesOP | AndOP deriving (Eq, Show)
 data CompOp = LEqualOP | GEqualOP | LessOP | GreaterOP | UnequalOP | EqualOP deriving (Eq, Show)
 data ArithOp = PlusOP deriving (Eq, Show)
 
-
+--data ConnectiveTree a where
+--  Connective :: (SBool -> SBool -> SBool) -> SBool -> SBool -> ConnectiveTree SBool
 
 data Implication = Implies [Clause] [Clause] deriving (Show, Eq)
 data Clause = LogicClause LogicOp Clause Clause | CompClause CompOp Term Term | BoolVar String | BoolConst String deriving (Show, Eq)
@@ -26,28 +28,35 @@ newtype ProgramTransition = Transition [Implication] deriving (Eq, Show)
 newtype ProgramProperty = Property [Implication] deriving (Eq, Show)
 
 data VariableState = VariableState {
-  boolVars :: Map.Map String (SBool, SBool),
-  intVars :: Map.Map String (SInteger, SInteger)
-}
+  boolVars :: [(String, SBool)],
+  intVars :: [(String, SInteger)]
+} deriving (Show, Eq)
 
+instance EqSymbolic VariableState where
+  VariableState {boolVars = boolVars1, intVars = intVars1} .== VariableState {boolVars = boolVars2, intVars = intVars2} = sAnd (zipWith (.==) (map snd boolVars1) (map snd boolVars2)) .&& sAnd (zipWith (.==) (map snd intVars1) (map snd intVars2))
+
+--instance Fresh IO VariableState where
+--  fresh = VariableState <$>
 
 lookupBoolVar :: String -> VariableState -> SBool
-lookupBoolVar str varState
-  | last str == '_' && Map.notMember deshadowed index = (snd . find) deshadowed
-  | otherwise = (fst . find) str
+lookupBoolVar str VariableState{boolVars, intVars}
+  | last str == '_' && isNothing indexOf = maybe sFalse (vars !!) indexOf'
+  | otherwise = maybe sFalse (vars !!) indexOf
     where
-      index = boolVars varState
+      (names,vars) = unzip boolVars
+      indexOf = elemIndex str names
+      indexOf' = elemIndex deshadowed names
       deshadowed = init str
-      find = flip (Map.findWithDefault (literal False, literal False)) index
 
 lookupIntVar :: String -> VariableState -> SInteger
-lookupIntVar str varState
-  | last str == '_' && Map.notMember deshadowed index = (snd . find) deshadowed
-  | otherwise = (fst . find) str
+lookupIntVar str VariableState {boolVars, intVars}
+  | last str == '_' && isNothing indexOf = maybe (literal 0) (vars !!) indexOf'
+  | otherwise = maybe (literal 0) (vars !!) indexOf
     where
-      index = intVars varState
+      (names,vars) = unzip intVars
+      indexOf = elemIndex str names
+      indexOf' = elemIndex deshadowed names
       deshadowed = init str
-      find = flip (Map.findWithDefault (literal 0, literal 0)) index
 
 
 translateArithOp :: ArithOp -> (SInteger -> SInteger -> SInteger)
@@ -67,42 +76,39 @@ translateCompOp LessOP = (.<)
 translateCompOp LEqualOP = (.<=)
 translateCompOp GreaterOP = (.>)
 
-bmc :: Int -> Program -> IO ()
-bmc bound program = bmc' 0 []
-  where
-  bmc' n oldstates
-    | n >= bound = putStrLn "Bound exceeded."
-    | n == 0 = do
-      putStrLn ("Level " ++ show n)
-      let newState = buildState program
-      let toProve = do {
-        ns <- newState;
-        translateProgram Nothing ns program
-      }
-      isSat <- isSatisfiable toProve
-      if isSat then
-        (do {
-        putStrLn "Counterexample found:";
-        result <- prove toProve;
-        print result;
-      })
-        else bmc' (n+1) (newState:oldstates)
-    | otherwise = do
-      putStrLn ("Level " ++ show n)
-      let newState = buildState program
-      let toProve = do {
-        os <- head oldstates;
-        ns <- newState;
-        translateProgram (Just os) ns program
-      }
-      isSat <- isSatisfiable toProve
-      if isSat then
-        (do {
-        putStrLn "Counterexample found:";
-        result <- prove toProve;
-        print result;
-      })
-        else bmc' (n+1) (newState:oldstates)
+bmc :: (EqSymbolic st, Queriable IO st res)
+        => SMTConfig
+        -> Maybe Int
+        -> Bool
+        -> Symbolic ()
+        -> (st -> SBool)
+        -> (st -> [(SBool, st)])
+        -> (st -> SBool)
+        -> IO (Either String (Int, [res]))
+bmc cfg mbLimit chatty setup initial trans goal = runSMTWith cfg $ do setup
+                                                                      query $ do
+                                                                              state <- create
+                                                                              constrain $ initial state
+                                                                              go 0 state []
+   where go i _ _
+          | Just l <- mbLimit, i >= l
+          = return $ Left $ "BMC limit of " ++ show l ++ " reached"
+         go i curState sofar = do when chatty $ io $ putStrLn $ "BMC: Iteration: " ++ show i
+                                  push 1
+                                  constrain $ goal curState
+                                  cs <- checkSat
+                                  case cs of
+                                    DSat{} -> error "BMC: Solver returned an unexpected delta-sat result."
+                                    Sat    -> do when chatty $ io $ putStrLn $ "BMC: Solution found at iteration " ++ show i
+                                                 ms <- mapM project (curState : sofar)
+                                                 return $ Right (i, reverse ms)
+                                    Unk    -> do when chatty $ io $ putStrLn $ "BMC: Backend solver said unknown at iteration " ++ show  i
+                                                 return $ Left $ "BMC: Solver said unknown in iteration " ++ show i
+                                    Unsat  -> do pop 1
+                                                 nextState <- create
+                                                 let nextStates = trans curState
+                                                 constrain $ sOr $ map (\ (pre, post) -> pre .&& nextState .== post) nextStates
+                                                 go (i+1) nextState (curState : sofar)
 
 translateProgram :: Maybe VariableState -> VariableState -> Program -> Symbolic SBool
 translateProgram oldState newState prog@(Program (State state)
@@ -113,6 +119,7 @@ translateProgram oldState newState prog@(Program (State state)
     mapM_ (constrain . translateBoolClause newState) init
     (return . sAll (translateImplies newState)) property
 
+{-
 buildState :: Program -> Symbolic VariableState
 buildState (Program (State state) _ _ _) 
   = do
@@ -125,18 +132,7 @@ buildState (Program (State state) _ _ _)
   where
     intVars' = (map fst . filter ((== ProgramInt) . snd)) state
     boolVars' = (map fst . filter ((== ProgramBool) . snd)) state
-
-connectStates :: VariableState -> VariableState -> [SBool]
-connectStates oldState newState = connectStates' oldBoolVars newBoolVars ++ connectStates' oldIntVars newIntVars
-  where
-    connectStates' :: EqSymbolic a => Map.Map String (b,a) -> Map.Map String (a,c) -> [SBool]
-    connectStates' old new = Map.elems (Map.mapWithKey (connectState new) old)
-    connectState :: EqSymbolic a => Map.Map String (a,b) -> String -> (c, a) -> SBool
-    connectState newState varName (_, shadow) = shadow .== fst (newState Map.! varName)
-    oldBoolVars = boolVars oldState
-    oldIntVars = intVars oldState
-    newBoolVars = boolVars newState
-    newIntVars = intVars newState
+-}
 
 translateImplies :: VariableState -> Implication -> SBool
 translateImplies varIndex (Implies clauses1 clauses2) = translateBoolClauses varIndex clauses1 .=> translateBoolClauses varIndex clauses2
