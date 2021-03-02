@@ -1,5 +1,8 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 import Data.SBV
 import Program
+import Control.Monad.Free
 
 main :: IO ()
 main = putStrLn "Test suite not yet implemented"
@@ -78,3 +81,16 @@ sumGoal :: VariableState -> SBool
 sumGoal variableState = sAll (translateImplies variableState) property
   where
     (Program _ _ _ (Property property)) = sumExample
+
+{-
+sumVerify :: SBVTree (Symbolic SBool) 
+sumVerify = do
+  x <- 
+-}
+
+
+{-
+sumProgramTree :: Free ProgramTree Integer
+sumProgramTree = do
+  program (state (declare "pc" ProgramInt (declare "n" ProgramInt done))) (Program.init done) (transition done) (Program.property done)
+  -}

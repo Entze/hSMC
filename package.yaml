@@ -28,6 +28,7 @@ library:
     - sbv >= 8 && < 9
     - containers >= 0.6 && < 1
     - safe >= 0.3 && < 1
+    - free >= 5 && < 6
 
 executables:
   hSMC-exe:
@@ -51,3 +52,4 @@ tests:
     dependencies:
     - hSMC
     - sbv >= 8 && < 9
+    - free >= 5 && < 6
