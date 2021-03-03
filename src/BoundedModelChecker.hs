@@ -3,9 +3,11 @@
 module BoundedModelChecker where
 
 import CommonTypes (Type (..))
-import Control.Monad.Free (Free(..))
+import Control.Monad.Free (Free (..))
+import Data.Bool (Bool)
+import Data.Functor (Functor)
+import Data.SBV (SBV (..), SBool (..), SInteger (..))
 import Data.String (String)
-import Data.Functor(Functor)
 import Prelude ()
 
 type BMCTree = Free BMCTreeF
@@ -19,4 +21,4 @@ data BMCTreeF next
   | Extend next
   | ImplySuccessorState next
   | CheckSatisfiability (Bool -> next)
-  deriving Functor
+  deriving (Functor)
