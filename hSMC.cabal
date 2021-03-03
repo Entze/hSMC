@@ -25,8 +25,11 @@ source-repository head
 
 library
   exposed-modules:
+      BoundedModelChecker
+      CommonTypes
       Lib
-      Program
+      ProgramInterpreter
+      ProgramParser
   other-modules:
       Paths_hSMC
   hs-source-dirs:
