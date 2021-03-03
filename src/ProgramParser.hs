@@ -1,11 +1,9 @@
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 
 module ProgramParser where
 
@@ -29,6 +27,7 @@ import Data.SBV as SBV
   )
 import Data.SBV.Control as SBV.Control ()
 import Safe ()
+import CommonTypes
 import Prelude
 
 data ProgramType = ProgramInt | ProgramBool deriving (Eq, Show)
@@ -39,14 +38,6 @@ data CompOp = LEqualOP | GEqualOP | LessOP | GreaterOP | UnequalOP | EqualOP der
 
 data ArithOp = PlusOP deriving (Eq, Show)
 
-type Store = VariableState
-
-data BMCTree a
-  = EstablishVar Store String ProgramType a
-  | Assignment Store String Integer a
-  | Retreive Store String a
-  | Done
-  deriving (Eq, Show, Functor)
 
 {-
 interpret :: BMCTree a -> Symbolic a
@@ -72,14 +63,6 @@ newtype ProgramTransition = Transition [Implication] deriving (Eq, Show)
 
 newtype ProgramProperty = Property [Implication] deriving (Eq, Show)
 
-data VariableState = VariableState
-  { boolVars :: [(String, SBool)],
-    intVars :: [(String, SInteger)]
-  }
-  deriving (Show, Eq)
-
-instance EqSymbolic VariableState where
-  VariableState {boolVars = boolVars1, intVars = intVars1} .== VariableState {boolVars = boolVars2, intVars = intVars2} = sAnd (zipWith (.==) (map snd boolVars1) (map snd boolVars2)) .&& sAnd (zipWith (.==) (map snd intVars1) (map snd intVars2))
 
 lookupBoolVar :: String -> VariableState -> SBool
 lookupBoolVar str VariableState {boolVars, intVars}

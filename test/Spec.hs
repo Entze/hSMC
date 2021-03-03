@@ -3,6 +3,8 @@
 import Data.SBV
 import ProgramParser
 import ProgramInterpreter
+import BoundedModelChecker as BMC
+import CommonTypes
 import Control.Monad.Free
 
 main :: IO ()
@@ -162,6 +164,25 @@ sumProgramTree = do
     i_ = var (Var "i_" Integer)
     r  = var (Var "r" Integer)
     r_ = var (Var "r_" Integer)
+
+
+initialState = VariableState {
+  boolVars = [],
+  intVars = zip ["pc", "n", "i", "r"] (repeat (literal 0))
+}
+
+sumBMCTree :: BMC.BMCTree Bool
+sumBMCTree
+  = do
+    BMC.log "Starting Proof"
+    BMC.createSInteger "pc"
+    BMC.createSInteger "n"
+    BMC.createSInteger "i"
+    BMC.createSInteger "r"
+    BMC.bmc (Just 6)
+
+
+
 {-
 sumVerify :: SBVTree (Symbolic SBool) 
 sumVerify = do
