@@ -3,129 +3,73 @@
 
 module BoundedModelChecker where
 
-import CommonTypes (Type (..), Variable, VariableState (..))
-import Control.Monad (Monad (..), void)
+import CommonTypes (Type (..), Variable, VariableState (..), emptyState, Declaration)
+import Control.Monad (Monad (..), void, sequence)
 import Control.Monad.Free (Free (..), liftF)
 import Data.Bool (Bool (..))
 import Data.Function (flip, ($), (.))
-import Data.Functor (Functor (..), (<$>))
+import Data.Functor (Functor (..), (<$>), (<&>))
 import Data.Int (Int)
 import Data.List (map, zip, (++))
 import Data.Maybe (Maybe (..))
 import Data.Ord (Ord (..))
-import Data.SBV (SBV (..), SBool (..), SInteger (..), Symbolic, sBools, sIntegers, constrain, EqSymbolic(..))
+import Data.SBV (SBV (..), SBool (..), SInteger (..), Symbolic, sBools, sIntegers, constrain, EqSymbolic(..), Predicate, sFalse, sAnd)
 import Data.SBV.Control(io)
 import Data.String (String)
 import Data.Tuple (fst)
 import Prelude (Show (show), ($!), (+), (-), putStr, putStrLn)
+import ProgramInterpreter ( ProgramF(..), Program, EvaluationStackElement(..), Connective(..))
 
-type BMCTree = Free BMCTreeF
 
-data BMCTreeF next
-  = CreateSBool String next
-  | CreateSInteger String next
-  | GetSBool String (SBool -> next)
-  | GetSInteger String (SInteger -> next)
-  | GetDepth (Maybe Int -> next)
-  | Extend next
-  | InitialConstraint next
-  | AddProperty next
-  | RemoveProperty next
-  | AddTransition next
-  | RemoveTransition next
-  | ImplySuccessorState next
-  | CheckSatisfiability (Bool -> next)
-  | Log String next
-  deriving (Functor)
-
-createSBool :: String -> BMCTree ()
-createSBool name = liftF $ CreateSBool name ()
-
-createSInteger :: String -> BMCTree ()
-createSInteger name = liftF $ CreateSInteger name ()
-
-initialConstraint :: BMCTree ()
-initialConstraint = liftF $ InitialConstraint ()
-
-getSBool :: String -> BMCTree SBool
-getSBool name = Free $ GetSBool name Pure
-
-getSInteger :: String -> BMCTree SInteger
-getSInteger name = Free $ GetSInteger name Pure
-
-extend :: BMCTree ()
-extend = liftF $ Extend ()
-
-addTransition :: BMCTree ()
-addTransition = liftF $ AddTransition ()
-
-addProperty :: BMCTree ()
-addProperty = liftF $ AddProperty ()
-
-removeTransition :: BMCTree ()
-removeTransition = liftF $ RemoveTransition ()
-
-removeProperty :: BMCTree ()
-removeProperty = liftF $ RemoveProperty ()
-
-implySuccessorState :: BMCTree ()
-implySuccessorState = liftF $ ImplySuccessorState ()
-
-checkSatisfiability :: BMCTree Bool
-checkSatisfiability = Free $ CheckSatisfiability Pure
-
-log :: String -> BMCTree ()
-log message = liftF $ Log message ()
-
-logLn :: String -> BMCTree ()
-logLn = log . ($!) (flip (++)) "\n"
-
-bmc :: Maybe Int -> BMCTree Bool
-bmc depth = do
-  log "Level 0..."
-  initialConstraint
-  addProperty
-  isSat <- checkSatisfiability
-  if isSat
-    then do
-      removeProperty
-      bmc' depth 0
-    else do
-      logLn "UNSAT"
-      return False
+extractDeclarations :: Program a -> [Declaration]
+extractDeclarations (Free (Program next)) = gotoState next
   where
-    bmc' (Just d) l
-      | d <= l = return True
-    bmc' _ level =
-      do
-        log $! "Level " ++ show level ++ "..."
-        extend
-        implySuccessorState
-        addTransition
-        addProperty
-        isSat <- checkSatisfiability
-        if isSat
-          then do
-            logLn "SAT"
-            removeTransition
-            removeProperty
-            bmc' depth (level + 1)
-          else do
-            logLn "UNSAT"
-            return False
+    gatherVariables (Free (VariableDeclaration name varType next)) = (name, varType):gatherVariables next
+    gatherVariables _ = []
+    gotoState (Free (State next@(Free VariableDeclaration {}))) = gatherVariables next
+    gotoState _ = []
+extractDeclarations _ = []
 
-newState :: VariableState -> Symbolic VariableState
-newState VariableState {boolVars, intVars} =
-  do
-    newBools <- sBools boolNames
-    newInts <- sIntegers intNames
-    return (VariableState (zip boolNames newBools) (zip intNames newInts))
+extractInitPredicate :: VariableState -> Program a -> Predicate
+extractInitPredicate varState (Free (Program next)) = gotoInit next
   where
-    boolNames = map fst boolVars
-    intNames = map fst intVars
+    gotoInit (Free (State next)) = gotoInit next
+    gotoInit (Free (VariableDeclaration _ _ next)) = gotoInit next
+    gotoInit (Free (Init next)) = (sequence . formulaToPredicate emptyState varState) next <&> sAnd
+extractInitPredicate _ _ = return sFalse
 
-bmcTreeToSbv :: VariableState -> VariableState -> BMCTree a -> Symbolic ()
-bmcTreeToSbv _ nextState (Free (Extend next)) = newState nextState >>= flip (bmcTreeToSbv nextState) next
-bmcTreeToSbv lastState nextState (Free (ImplySuccessorState next)) = constrain (nextState .== lastState) >> bmcTreeToSbv lastState nextState next
-bmcTreeToSbv lastState nextState (Free (Log msg next)) = (return . putStr) msg >> bmcTreeToSbv lastState nextState next
-bmcTreeToSbv _ _ _ = (return . putStrLn) "Not implemented yet" >> return ()
+isArithmetic :: Connective -> Bool
+isArithmetic Plus = True
+isArithmetic _ = False
+
+isComparative :: Connective -> Bool
+isComparative Equals = True
+isComparative LessEq = True
+isComparative Greater = True
+isComparative _ = False
+
+isBoolean :: Connective -> Bool
+isBoolean ProgramInterpreter.Implies = True
+isBoolean ProgramInterpreter.And = True
+isBoolean ProgramInterpreter.Or = True
+isBoolean _ = False
+
+formulaToPredicate :: VariableState -> VariableState -> Program a -> [Predicate]
+formulaToPredicate previousState currentState f@(Free Push {}) = (workoffStack . formulaToStack) f
+  where
+    workoffStack' :: [EvaluationStackElement] -> Predicate
+    workoffStack' _ = return sFalse
+    workoffStack :: [EvaluationStackElement] -> [Predicate]
+    workoffStack = map workoffStack' . splitStacks
+    splitStacks' :: Int -> [EvaluationStackElement] -> [EvaluationStackElement] -> [[EvaluationStackElement]]
+    splitStacks' _ worked [] = [worked]
+    splitStacks' 0 worked (h@(Connect conn arity):stack) = worked:splitStacks' arity [h] stack
+    splitStacks' n worked (h@(Connect conn arity):stack) = splitStacks' (n+arity - 1) (h:worked) stack
+    splitStacks' n worked (h:stack) = splitStacks' (n - 1) (h:worked) stack
+    splitStacks :: [EvaluationStackElement] -> [[EvaluationStackElement]]
+    splitStacks (h@(Connect conn arity):stack) = splitStacks' arity [h] stack
+
+    formulaToStack :: Program a -> [EvaluationStackElement]
+    formulaToStack (Free (Push e next)) = e:formulaToStack next
+    formulaToStack _ = []
+formulaToPredicate _ _ _ = []
