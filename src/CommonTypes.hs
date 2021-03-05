@@ -1,11 +1,27 @@
-module CommonTypes (Type (..), Variable (..), VariableState (..), emptyState, fromDeclarations, Declaration) where
+{-# LANGUAGE NamedFieldPuns #-}
+
+module CommonTypes
+  ( Type (..),
+    Variable (..),
+    VariableState (..),
+    emptyState,
+    fromDeclarations,
+    Declaration,
+    lookupBoolVar,
+    lookupIntVar,
+    elemVariableState,
+    shadowElemVariableState,
+  )
+where
 
 import Control.Monad (Monad (..))
-import Data.Eq (Eq(..))
-import Data.Functor (Functor (..))
+import Data.Bool (Bool (..), not, otherwise, (&&), (||))
+import Data.Eq (Eq (..))
 import Data.Function ((.))
-import Data.List (map, partition, zip, zipWith)
-import Data.SBV (EqSymbolic ((.==)), SBool, SInteger, Symbolic, sAnd, sBools, sIntegers, (.&&))
+import Data.Functor (Functor (..))
+import Data.List as List (elem, elemIndex, init, last, map, partition, unzip, zip, zipWith, (!!))
+import Data.Maybe (Maybe (..), isNothing, maybe)
+import Data.SBV (EqSymbolic ((.==)), SBool, SInteger, Symbolic, literal, sAnd, sBools, sFalse, sIntegers, (.&&))
 import Data.String (String)
 import Data.Tuple (fst, snd)
 import Prelude (Show)
@@ -24,6 +40,37 @@ data VariableState = VariableState
 
 emptyState :: VariableState
 emptyState = VariableState {boolVars = [], intVars = []}
+
+elemVariableState :: String -> VariableState -> Bool
+elemVariableState name VariableState {boolVars, intVars} = name `elem` boolNames || name `elem` intNames
+  where
+    (boolNames, _) = unzip boolVars
+    (intNames, _) = unzip intVars
+
+shadowElemVariableState :: String -> VariableState -> Bool
+shadowElemVariableState name varState = shadow == '_' && elemVariableState name' varState && not (elemVariableState name varState)
+  where
+    (name', shadow) = (init name, last name)
+
+lookupBoolVar :: String -> VariableState -> SBool
+lookupBoolVar str VariableState {boolVars, intVars}
+  | last str == '_' && isNothing indexOf = maybe sFalse (vars !!) indexOf'
+  | otherwise = maybe sFalse (vars !!) indexOf
+  where
+    (names, vars) = unzip boolVars
+    indexOf = List.elemIndex str names
+    indexOf' = List.elemIndex deshadowed names
+    deshadowed = List.init str
+
+lookupIntVar :: String -> VariableState -> SInteger
+lookupIntVar str VariableState {boolVars, intVars}
+  | last str == '_' && isNothing indexOf = maybe (literal 0) (vars !!) indexOf'
+  | otherwise = maybe (literal 0) (vars !!) indexOf
+  where
+    (names, vars) = unzip intVars
+    indexOf = elemIndex str names
+    indexOf' = elemIndex deshadowed names
+    deshadowed = List.init str
 
 fromDeclarations :: [Declaration] -> Symbolic VariableState
 fromDeclarations declaration =

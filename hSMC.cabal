@@ -30,6 +30,7 @@ library
       Lib
       ProgramInterpreter
       ProgramParser
+      Util
   other-modules:
       Paths_hSMC
   hs-source-dirs:

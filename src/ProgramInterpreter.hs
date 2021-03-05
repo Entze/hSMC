@@ -18,6 +18,7 @@ import Prelude (Enum, Integer, Show (show), ($!), (-))
 
 type Program = Free ProgramF
 
+toSmtLibString :: Type -> String
 toSmtLibString Bool = "Bool"
 toSmtLibString Integer = "Int"
 
@@ -28,10 +29,13 @@ data EvaluationStackElement = Connect Connective Int | VariableElement Variable 
 connective :: Connective -> Int -> EvaluationStackElement
 connective = Connect
 
+var :: Variable -> EvaluationStackElement
 var = VariableElement
 
+boolConst :: Bool -> EvaluationStackElement
 boolConst = BoolConstant
 
+integerConst :: Integer -> EvaluationStackElement
 integerConst = IntegerConstant
 
 data ProgramF next

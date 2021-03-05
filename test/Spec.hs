@@ -165,21 +165,36 @@ sumProgramTree = do
     r  = var (Var "r" Integer)
     r_ = var (Var "r_" Integer)
 
+sumDeclarations :: [Declaration]
+sumDeclarations = extractDeclarations sumProgramTree
 
-initialState = VariableState {
-  boolVars = [],
-  intVars = zip ["pc", "n", "i", "r"] (repeat (literal 0))
-}
-
-sumBMCTree :: BMC.BMCTree Bool
-sumBMCTree
-  = do
-    BMC.log "Starting Proof"
-    BMC.createSInteger "pc"
-    BMC.createSInteger "n"
-    BMC.createSInteger "i"
-    BMC.createSInteger "r"
-    BMC.bmc (Just 6)
+sumBMCTree :: Symbolic SBool
+sumBMCTree = do
+  varState1 <- fromDeclarations sumDeclarations
+  constrain $ extractInit varState1 sumProgramTree
+  constrain $ extractProperty varState1 sumProgramTree
+  varState2 <- fromDeclarations sumDeclarations
+  constrain $ extractTransition varState1 varState2 sumProgramTree
+  constrain $ extractProperty varState2 sumProgramTree
+  varState3 <- fromDeclarations sumDeclarations
+  constrain $ extractTransition varState2 varState3 sumProgramTree
+  constrain $ extractProperty varState3 sumProgramTree
+  varState4 <- fromDeclarations sumDeclarations
+  constrain $ extractTransition varState3 varState4 sumProgramTree
+  constrain $ extractProperty varState4 sumProgramTree
+  varState5 <- fromDeclarations sumDeclarations
+  constrain $ extractTransition varState4 varState5 sumProgramTree
+  constrain $ extractProperty varState5 sumProgramTree
+  varState6 <- fromDeclarations sumDeclarations
+  constrain $ extractTransition varState5 varState6 sumProgramTree
+  constrain $ extractProperty varState6 sumProgramTree
+  varState7 <- fromDeclarations sumDeclarations
+  constrain $ extractTransition varState6 varState7 sumProgramTree
+  constrain $ extractProperty varState7 sumProgramTree
+  varState8 <- fromDeclarations sumDeclarations
+  constrain $ extractTransition varState6 varState7 sumProgramTree
+  constrain $ extractProperty varState7 sumProgramTree
+  return $! extractProperty varState7 sumProgramTree
 
 
 

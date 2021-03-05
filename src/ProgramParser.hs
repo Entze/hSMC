@@ -2,11 +2,11 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module ProgramParser where
 
+import CommonTypes (VariableState (..), lookupBoolVar, lookupIntVar)
 import Control.Monad as Monad (Functor, Monad (return), mapM_)
 import Control.Monad.Free as FreeMonad ()
 import Data.List as List (elemIndex, init)
@@ -27,7 +27,6 @@ import Data.SBV as SBV
   )
 import Data.SBV.Control as SBV.Control ()
 import Safe ()
-import CommonTypes
 import Prelude
 
 data ProgramType = ProgramInt | ProgramBool deriving (Eq, Show)
@@ -37,7 +36,6 @@ data LogicOp = EquivOP | XorOP | ImpliesOP | AndOP deriving (Eq, Show)
 data CompOp = LEqualOP | GEqualOP | LessOP | GreaterOP | UnequalOP | EqualOP deriving (Eq, Show)
 
 data ArithOp = PlusOP deriving (Eq, Show)
-
 
 {-
 interpret :: BMCTree a -> Symbolic a
@@ -62,27 +60,6 @@ newtype ProgramInit = Init [Clause] deriving (Eq, Show)
 newtype ProgramTransition = Transition [Implication] deriving (Eq, Show)
 
 newtype ProgramProperty = Property [Implication] deriving (Eq, Show)
-
-
-lookupBoolVar :: String -> VariableState -> SBool
-lookupBoolVar str VariableState {boolVars, intVars}
-  | last str == '_' && isNothing indexOf = maybe sFalse (vars !!) indexOf'
-  | otherwise = maybe sFalse (vars !!) indexOf
-  where
-    (names, vars) = unzip boolVars
-    indexOf = List.elemIndex str names
-    indexOf' = List.elemIndex deshadowed names
-    deshadowed = Prelude.init str
-
-lookupIntVar :: String -> VariableState -> SInteger
-lookupIntVar str VariableState {boolVars, intVars}
-  | last str == '_' && isNothing indexOf = maybe (literal 0) (vars !!) indexOf'
-  | otherwise = maybe (literal 0) (vars !!) indexOf
-  where
-    (names, vars) = unzip intVars
-    indexOf = elemIndex str names
-    indexOf' = elemIndex deshadowed names
-    deshadowed = Prelude.init str
 
 translateArithOp :: ArithOp -> (SInteger -> SInteger -> SInteger)
 translateArithOp PlusOP = (+)
