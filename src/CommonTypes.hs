@@ -6,6 +6,7 @@ module CommonTypes
     VariableState (..),
     emptyState,
     fromDeclarations,
+    createFromDeclarations,
     Declaration,
     lookupBoolVar,
     lookupIntVar,
@@ -14,16 +15,18 @@ module CommonTypes
   )
 where
 
-import Control.Monad (Monad (..))
+import Control.Monad (Monad (..), mapM)
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Eq (Eq (..))
 import Data.Function ((.))
 import Data.Functor (Functor (..))
-import Data.List as List (elem, elemIndex, init, last, map, partition, unzip, zip, zipWith, (!!))
+import Data.List as List (elem, elemIndex, filter, init, last, map, partition, unzip, zip, zipWith, (!!))
 import Data.Maybe (Maybe (..), isNothing, maybe)
 import Data.SBV (EqSymbolic ((.==)), SBool, SInteger, Symbolic, literal, sAnd, sBools, sFalse, sIntegers, (.&&))
+import Data.SBV.Control (Query, freshVar)
 import Data.String (String)
 import Data.Tuple (fst, snd)
+import Util (mapFst, mapSnd)
 import Prelude (Show)
 
 data Type = Bool | Integer deriving (Eq, Show)
@@ -78,6 +81,20 @@ fromDeclarations declaration =
     sBoolVars <- sBools boolNames
     sIntegerVars <- sIntegers integerNames
     return VariableState {boolVars = zip boolNames sBoolVars, intVars = zip integerNames sIntegerVars}
+  where
+    (boolNames, integerNames) = unpackDeclarations declaration
+
+createFromDeclarations :: [Declaration] -> Query VariableState
+createFromDeclarations declaration =
+  do
+    qBoolVars <- mapM freshVar boolNames
+    qIntegerVars <- mapM freshVar integerNames
+    return VariableState {boolVars = zip boolNames qBoolVars, intVars = zip integerNames qIntegerVars}
+  where
+    (boolNames, integerNames) = unpackDeclarations declaration
+
+unpackDeclarations :: [Declaration] -> ([String], [String])
+unpackDeclarations declaration = (boolNames, integerNames)
   where
     integerNames = map fst integers
     boolNames = map fst bools

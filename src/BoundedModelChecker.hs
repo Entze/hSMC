@@ -3,6 +3,9 @@ module BoundedModelChecker
     extractInit,
     extractProperty,
     extractTransition,
+    bmc,
+    bmc',
+    bmcWith
   )
 where
 
@@ -16,11 +19,12 @@ import CommonTypes
     lookupBoolVar,
     lookupIntVar,
     shadowElemVariableState,
+    createFromDeclarations
   )
 import Control.Monad
   ( Monad (..),
     sequence,
-    void,
+    void, when
   )
 import Control.Monad.Free
   ( Free (..),
@@ -32,6 +36,7 @@ import Data.Bool
     (&&),
     (||),
   )
+import Data.Either (Either (..))
 import Data.Function
   ( flip,
     id,
@@ -55,16 +60,18 @@ import Data.List
   )
 import Data.Maybe (Maybe (..))
 import Data.Ord (Ord (..))
-import Data.SBV
+import Data.SBV as SBV
   ( EqSymbolic (..),
     OrdSymbolic (..),
     Predicate,
     SBV (..),
     SBool (..),
     SInteger (..),
+    SMTConfig,
     Symbolic,
     constrain,
     literal,
+    runSMTWith,
     sAll,
     sAnd,
     sBools,
@@ -73,9 +80,9 @@ import Data.SBV
     sOr,
     (.&&),
     (.=>),
-    (.||),
+    (.||), defaultSMTCfg
   )
-import Data.SBV.Control (io)
+import Data.SBV.Control as Control (io, Query(..), query, push, pop, checkSat, CheckSatResult(..))
 import Data.String (String)
 import Data.Tuple (fst)
 import ProgramInterpreter
@@ -84,9 +91,14 @@ import ProgramInterpreter
     Program,
     ProgramF (..),
   )
-import Util (mapAdjacent)
+import Util
+  ( mapAdjacent,
+    mapFst,
+    mapSnd,
+  )
 import Prelude
-  ( Num (..),
+  ( IO (..),
+    Num (..),
     Show (show),
     error,
     putStr,
@@ -249,4 +261,39 @@ formulaToSBool previousState currentState f@(Free Push {}) = (workoffStack . for
     formulaToStack _ = []
 formulaToSBool _ _ _ = []
 
---bmc :: Int -> Program a ->
+bmc :: Maybe Int -> Program a -> IO (Either String (Int, [VariableState]))
+bmc = flip bmc' True
+
+bmc' :: Maybe Int -> Bool -> Program a -> IO (Either String (Int, [VariableState]))
+bmc' = bmcWith defaultSMTCfg 
+
+bmcWith :: SMTConfig -> Maybe Int -> Bool -> Program a -> IO (Either String (Int, [VariableState]))
+bmcWith cfg mbLimit chatty program =
+  runSMTWith cfg $ do query $ do  state <- create
+                                  constrain $ initial state
+                                  go 0 state []
+  where
+    go i _ _
+      | Just l <- mbLimit, i >= l = return $ Left $ "BMC: Limit of " ++ show l ++ " reached."
+    go i curState sofar = do  when chatty $ io $ putStr $! "BMC: Level " ++ show i ++ "..."
+                              push 1
+                              constrain $ goal curState
+                              cs <- checkSat
+                              case cs of
+                                DSat{}  ->  error "\nBMC: Solver returned an unexpected delta-sat result."
+                                Unsat   -> do when chatty $ io $ putStrLn $! "UNSAT.\nBMC: Solution found at iteration " ++ show i ++ "."
+                                              return $ Right (i, reverse (curState:sofar))
+                                Unk     -> do when chatty $ io $ putStrLn $! "UNKNOWN.\nBMC: Backend solver said unknown at iteration " ++ show i ++ "."
+                                              return $ Left $ "BMC: Solver said unknown in iteration " ++ show i
+                                Sat     -> do when chatty $ io $ putStrLn $! "SAT."
+                                              pop 1
+                                              nextState <- create
+                                              constrain $ transition curState nextState program
+                                              go (i+1) nextState (curState:sofar)
+
+    declarations = extractDeclarations program
+    create :: Query VariableState
+    create = createFromDeclarations declarations
+    initial = flip extractProperty program
+    goal = flip extractProperty program
+    transition = extractTransition
