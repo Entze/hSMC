@@ -5,7 +5,8 @@ module BoundedModelChecker
     extractTransition,
     bmc,
     bmc',
-    bmcWith
+    bmcWith,
+    showBMCResult
   )
 where
 
@@ -14,17 +15,20 @@ import CommonTypes
     Type (..),
     Variable (..),
     VariableState (..),
+    createFromDeclarations,
     elemVariableState,
     emptyState,
+    extractValues,
     lookupBoolVar,
     lookupIntVar,
     shadowElemVariableState,
-    createFromDeclarations
   )
 import Control.Monad
   ( Monad (..),
+    mapM,
     sequence,
-    void, when
+    void,
+    when,
   )
 import Control.Monad.Free
   ( Free (..),
@@ -51,12 +55,17 @@ import Data.Functor
 import Data.Int (Int)
 import Data.List
   ( map,
+    replicate,
     reverse,
     sum,
     take,
     unlines,
+    unzip,
     zip,
-    (++),
+    zipWith,
+    length,
+    maximum,
+    (++), repeat
   )
 import Data.Maybe (Maybe (..))
 import Data.Ord (Ord (..))
@@ -70,19 +79,36 @@ import Data.SBV as SBV
     SMTConfig,
     Symbolic,
     constrain,
+    defaultSMTCfg,
     literal,
+    namedConstraint,
     runSMTWith,
     sAll,
     sAnd,
     sBools,
     sFalse,
     sIntegers,
+    sNot,
     sOr,
+    setOption,
     (.&&),
     (.=>),
-    (.||), defaultSMTCfg
+    (.||), mathSAT
   )
-import Data.SBV.Control as Control (io, Query(..), query, push, pop, checkSat, CheckSatResult(..))
+import Data.SBV.Control as Control
+  ( CheckSatResult (..),
+    Query (..),
+    SMTOption (..),
+    checkSat,
+    getAssertions,
+    getModel,
+    getProof,
+    getUnsatCore,
+    io,
+    pop,
+    push,
+    query,
+  )
 import Data.String (String)
 import Data.Tuple (fst)
 import ProgramInterpreter
@@ -92,18 +118,20 @@ import ProgramInterpreter
     ProgramF (..),
   )
 import Util
-  ( mapAdjacent,
+  ( formatTuple,
+    mapAdjacent,
     mapFst,
     mapSnd,
   )
 import Prelude
   ( IO (..),
+    Integer (..),
     Num (..),
     Show (show),
     error,
     putStr,
     putStrLn,
-    ($!),
+    ($!), Integral (div, rem)
   )
 
 extractDeclarations :: Program a -> [Declaration]
@@ -261,39 +289,82 @@ formulaToSBool previousState currentState f@(Free Push {}) = (workoffStack . for
     formulaToStack _ = []
 formulaToSBool _ _ _ = []
 
-bmc :: Maybe Int -> Program a -> IO (Either String (Int, [VariableState]))
+type BMCResult = Either String (Int, [([(String, Bool)], [(String, Integer)])])
+
+bmc :: Maybe Int -> Program a -> IO BMCResult
 bmc = flip bmc' True
 
-bmc' :: Maybe Int -> Bool -> Program a -> IO (Either String (Int, [VariableState]))
-bmc' = bmcWith defaultSMTCfg 
+bmc' :: Maybe Int -> Bool -> Program a -> IO BMCResult
+bmc' = bmcWith mathSAT 
 
-bmcWith :: SMTConfig -> Maybe Int -> Bool -> Program a -> IO (Either String (Int, [VariableState]))
+bmcWith :: SMTConfig -> Maybe Int -> Bool -> Program a -> IO BMCResult
 bmcWith cfg mbLimit chatty program =
-  runSMTWith cfg $ do query $ do  state <- create
-                                  constrain $ initial state
-                                  go 0 state []
+  runSMTWith cfg $ do
+    query $ do
+      state <- create
+      namedConstraint "init" $ initial state
+      go 0 state []
   where
     go i _ _
-      | Just l <- mbLimit, i >= l = return $ Left $ "BMC: Limit of " ++ show l ++ " reached."
-    go i curState sofar = do  when chatty $ io $ putStr $! "BMC: Level " ++ show i ++ "..."
-                              push 1
-                              constrain $ goal curState
-                              cs <- checkSat
-                              case cs of
-                                DSat{}  ->  error "\nBMC: Solver returned an unexpected delta-sat result."
-                                Unsat   -> do when chatty $ io $ putStrLn $! "UNSAT.\nBMC: Solution found at iteration " ++ show i ++ "."
-                                              return $ Right (i, reverse (curState:sofar))
-                                Unk     -> do when chatty $ io $ putStrLn $! "UNKNOWN.\nBMC: Backend solver said unknown at iteration " ++ show i ++ "."
-                                              return $ Left $ "BMC: Solver said unknown in iteration " ++ show i
-                                Sat     -> do when chatty $ io $ putStrLn $! "SAT."
-                                              pop 1
-                                              nextState <- create
-                                              constrain $ transition curState nextState program
-                                              go (i+1) nextState (curState:sofar)
+      | Just l <- mbLimit, i >= l = return $ Left $ "BMC: Limit of " ++ show l ++ " reached. No counterexample found."
+    go i curState sofar = do
+      when chatty $ io $ putStr $! "BMC: Level " ++ show i ++ "..."
+      push 1
+      namedConstraint ("Property on level " ++ show i) . sNot $ goal curState
+      cs <- checkSat
+      case cs of
+        DSat {} -> error "\nBMC: Solver returned an unexpected delta-sat result."
+        Sat -> do
+          when chatty $ io $ putStrLn $! "SAT.\nBMC: Counterexample found at iteration " ++ show i ++ "."
+          rs <- (mapM extractValues . reverse) (curState : sofar)
+          return $ Right (i, rs)
+        Unk -> do
+          when chatty $ io $ putStrLn $! "UNKNOWN.\nBMC: Backend solver said unknown at iteration " ++ show i ++ "."
+          return $ Left $ "BMC: Solver said unknown in iteration " ++ show i
+        Unsat -> do
+          when chatty $ io $ putStrLn $! "UNSAT."
+          --core <- getUnsatCore
+          --when chatty $ io $ putStrLn $! unlines core
+          pop 1
+          nextState <- create
+          namedConstraint ("Transition " ++ show i ++ " -> " ++ show (i + 1)) $ transition curState nextState program
+          go (i + 1) nextState (curState : sofar)
 
     declarations = extractDeclarations program
     create :: Query VariableState
     create = createFromDeclarations declarations
-    initial = flip extractProperty program
+    initial = flip extractInit program
     goal = flip extractProperty program
     transition = extractTransition
+
+showBMCResult :: BMCResult -> String
+showBMCResult (Left errMsg) = errMsg
+showBMCResult (Right (level, variableStates)) = showVariableStates variableStates
+  where
+    titleMaxLength = (6 + (length . show) level) `div` 2
+    showVariableStates :: [([(String,Bool)], [(String, Integer)])] -> String
+    showVariableStates  = unlines . showVariableStates' 0 0
+    showVariableStates' :: Int -> Int -> [([(String,Bool)], [(String, Integer)])] -> [String]
+    showVariableStates' _ _ [] = repeat []
+    showVariableStates' i n (l:ls) = ($!) zipWith ((++) . (:) ' ' . (:)' ' . (:)' ') (title:l') (showVariableStates' (i+1) (n + n') ls)
+      where
+        n' = length title
+        title = ($!) replicate front ' ' ++ "Level " ++ show i ++ replicate back ' '
+        l' = showVariableState l
+        width = maximum (map (length . show) l')
+        front = (width `div` 2) - (titleMaxLength + 1)
+        back = (width `div` 2) - (titleMaxLength + (width `rem` 2))
+    showVariableState :: ([(String, Bool)], [(String, Integer)]) -> [String]
+    showVariableState (bs, is) = showVariables bs ++ showVariables is
+    showVariables :: Show a => [(String, a)] -> [String]
+    showVariables [] = []
+    showVariables ll = zipWith combine names values'
+      where
+        combine name value = name ++ ':' : replicate (namesLength - nL) ' ' ++ ' ' : replicate (valuesLength - vL) ' ' ++ value
+          where
+            nL = length name
+            vL = length value
+        (names, values) = unzip ll
+        values' = map show values
+        namesLength = max (maximum (map length names)) (titleMaxLength - 1)
+        valuesLength = max (maximum (map length values')) titleMaxLength
